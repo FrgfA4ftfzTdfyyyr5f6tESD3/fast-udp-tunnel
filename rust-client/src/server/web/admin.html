@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Morph Core — Edge Manager</title>
+  <style>
+    :root {
+      --bg: #070a11;
+      --card-bg: rgba(15, 22, 38, 0.78);
+      --card-hover: rgba(22, 32, 54, 0.88);
+      --card-border: rgba(255, 255, 255, 0.09);
+      --card-border-glow: rgba(0, 210, 255, 0.35);
+      --primary: #00d2ff;
+      --primary-glow: rgba(0, 210, 255, 0.45);
+      --accent: #3a7bd5;
+      --success: #00e676;
+      --success-glow: rgba(0, 230, 118, 0.35);
+      --warning: #ffd600;
+      --danger: #ff1744;
+      --danger-glow: rgba(255, 23, 68, 0.35);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Vazirmatn", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 85% 15%, #131e36, #070a11 65%);
+      color: var(--text);
+      font-family: var(--font-family);
+      min-height: 100vh;
+      padding: 16px;
+      line-height: 1.45;
+    }
+
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 20px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-logo {
+      width: 42px; height: 42px;
+      background: rgba(0, 210, 255, 0.08);
+      border: 1px solid rgba(0, 210, 255, 0.38);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 20px var(--primary-glow);
+    }
+    .brand h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(90deg, #fff, #b8dcff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .brand p { font-size: 12px; color: var(--text-muted); }
+
+    .header-actions { display: flex; gap: 10px; align-items: center; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 8px 15px; border-radius: 8px; font-weight: 600;
+      font-size: 13px; cursor: pointer; border: none; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #00d2ff, #0072ff);
+      color: #050b14;
+      box-shadow: 0 3px 14px var(--primary-glow);
+    }
+    .btn-primary:hover { transform: translateY(-1px); filter: brightness(1.12); box-shadow: 0 5px 20px var(--primary-glow); }
+    .btn-secondary { background: rgba(255, 255, 255, 0.07); color: var(--text); border: 1px solid var(--card-border); }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.18); }
+    .btn-danger { background: rgba(255, 23, 68, 0.14); color: var(--danger); border: 1px solid rgba(255, 23, 68, 0.3); }
+    .btn-danger:hover { background: var(--danger); color: #fff; box-shadow: 0 4px 16px var(--danger-glow); }
+    .btn-sm { padding: 5px 10px; font-size: 11.5px; border-radius: 6px; }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(14px);
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex; flex-direction: column; gap: 4px;
+      position: relative; overflow: hidden;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .stat-card:hover { transform: translateY(-2px); border-color: var(--card-border-glow); }
+    .stat-card::before {
+      content: ""; position: absolute; top: 0; left: 0; width: 4px; height: 100%;
+      background: var(--accent); opacity: 0.85;
+    }
+    .stat-card.glow-green::before { background: var(--success); box-shadow: 0 0 12px var(--success-glow); }
+    .stat-card.glow-cyan::before { background: var(--primary); box-shadow: 0 0 12px var(--primary-glow); }
+    .stat-card.glow-gold::before { background: var(--warning); }
+
+    .stat-title { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+    .stat-val { font-size: 21px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+    .stat-sub { font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+
+    /* Table Section */
+    .table-section {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(14px);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .table-header {
+      padding: 14px 18px;
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap; gap: 12px;
+    }
+    .table-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: #fff; }
+    
+    .search-input {
+      padding: 7px 12px; background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--card-border); border-radius: 7px; color: #fff;
+      font-size: 12.5px; outline: none; width: 200px; transition: all 0.2s ease;
+    }
+    .search-input:focus { border-color: var(--primary); box-shadow: 0 0 10px var(--primary-glow); width: 240px; }
+
+    .table-wrapper { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+    th {
+      padding: 11px 14px; font-size: 11px; font-weight: 600;
+      color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+      background: rgba(0, 0, 0, 0.3);
+    }
+    td { padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); vertical-align: middle; }
+    tr:hover td { background: rgba(255, 255, 255, 0.025); }
+
+    .user-info { display: flex; flex-direction: column; }
+    .user-name { font-weight: 700; color: #fff; font-size: 13.5px; }
+    .user-id { font-size: 11px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 8px; border-radius: 16px; font-size: 11px; font-weight: 600;
+    }
+    .badge-success { background: rgba(0, 230, 118, 0.15); color: var(--success); }
+    .badge-warning { background: rgba(255, 214, 0, 0.15); color: var(--warning); }
+    .badge-danger { background: rgba(255, 23, 68, 0.15); color: var(--danger); }
+    .badge-muted { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+    .badge-auto {
+      background: linear-gradient(135deg, rgba(0, 210, 255, 0.16), rgba(58, 123, 213, 0.2));
+      color: var(--primary);
+      border: 1px solid rgba(0, 210, 255, 0.3);
+    }
+
+    .progress-bar-bg {
+      width: 110px; height: 5px; background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px; overflow: hidden; margin-top: 4px;
+    }
+    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent)); transition: width 0.3s; }
+    .progress-bar-fill.danger { background: var(--danger); }
+
+    .actions-cell { display: flex; gap: 5px; align-items: center; }
+
+    /* Modals */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.78);
+      backdrop-filter: blur(10px); z-index: 100;
+      align-items: center; justify-content: center; padding: 14px;
+    }
+    .modal-overlay.active { display: flex; animation: fadeIn 0.18s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .modal-card {
+      background: #0d1424; border: 1px solid rgba(0, 210, 255, 0.28);
+      border-radius: 14px; width: 100%; max-width: 480px;
+      padding: 22px 24px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75);
+      position: relative;
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .modal-head h2 { font-size: 17px; font-weight: 700; color: #fff; }
+    .close-btn { background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; transition: color 0.15s; }
+    .close-btn:hover { color: #fff; }
+
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
+    .form-input {
+      width: 100%; padding: 8px 12px; background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--card-border); border-radius: 7px; color: #fff;
+      font-size: 13px; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-input:focus { border-color: var(--primary); box-shadow: 0 0 8px var(--primary-glow); }
+    .form-input:focus { border-color: var(--primary); box-shadow: 0 0 10px var(--primary-glow); }
+
+    /* Custom high-contrast dropdown selector */
+    .form-select {
+      width: 100%; padding: 10px 14px;
+      background: #0d1527 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2300d2ff' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E") no-repeat right 14px center;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      padding-right: 36px;
+      border: 1px solid var(--card-border); border-radius: 8px; color: #fff;
+      font-size: 13.5px; outline: none; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-select:focus { border-color: var(--primary); box-shadow: 0 0 10px var(--primary-glow); }
+
+    /* Bulletproof dark options for all browsers */
+    .form-select option {
+      background-color: #0b1220 !important;
+      color: #f1f5f9 !important;
+      padding: 12px 14px;
+      font-size: 13.5px;
+    }
+    .form-select option:hover, .form-select option:checked {
+      background-color: #00d2ff !important;
+      color: #050b14 !important;
+      font-weight: 700;
+    }
+
+    .auto-protocol-box {
+      background: linear-gradient(135deg, rgba(0, 210, 255, 0.08), rgba(0, 114, 255, 0.05));
+      border: 1px solid rgba(0, 210, 255, 0.28);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .auto-badge {
+      font-size: 12px; font-weight: 700; color: var(--primary);
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    .preset-btns { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 6px; }
+    .preset-btn {
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--card-border);
+      color: var(--text); padding: 5px 11px; border-radius: 6px; font-size: 11.5px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .preset-btn:hover { background: var(--primary); color: #050b14; font-weight: 700; border-color: var(--primary); }
+
+    .token-display-box {
+      background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(0, 210, 255, 0.25);
+      border-radius: 8px; padding: 12px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px;
+      word-break: break-all; width: 100%; height: 100px; color: var(--primary);
+      resize: none; outline: none; margin: 12px 0;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: #00e676; color: #050b14;
+      padding: 12px 20px; border-radius: 10px; font-weight: 700; font-size: 13.5px;
+      box-shadow: 0 10px 30px rgba(0, 230, 118, 0.4);
+      display: none; z-index: 200; animation: slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .toast.error { background: #ff1744; color: #fff; box-shadow: 0 10px 30px rgba(255, 23, 68, 0.4); }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 32 32" width="28" height="28">
+            <defs>
+              <linearGradient id="morphGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#00d2ff"/>
+                <stop offset="100%" stop-color="#0072ff"/>
+              </linearGradient>
+            </defs>
+            <path d="M16 2 L29 9.5 L29 22.5 L16 30 L3 22.5 L3 9.5 Z" fill="none" stroke="url(#morphGrad)" stroke-width="2.5"/>
+            <polygon points="16,7 24,11.5 24,20.5 16,25 8,20.5 8,11.5" fill="url(#morphGrad)" opacity="0.85"/>
+            <circle cx="16" cy="16" r="3" fill="#ffffff"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Morph Core</h1>
+          <p>Edge Camouflage & Subscriber Manager</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary btn-sm" onclick="fetchData()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          Refresh
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="openNewUserModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Create Subscriber
+        </button>
+      </div>
+    </header>
+
+    <!-- Stats Bar -->
+    <div class="stats-grid">
+      <div class="stat-card glow-cyan">
+        <div class="stat-title">Server Status</div>
+        <div class="stat-val" id="serverStatus">Online</div>
+        <div class="stat-sub" id="uptimeSub">Uptime: --</div>
+      </div>
+      <div class="stat-card glow-green">
+        <div class="stat-title">Active Tunnels</div>
+        <div class="stat-val" id="activeSessions">0</div>
+        <div class="stat-sub">Connected UDP Sessions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Total Users</div>
+        <div class="stat-val" id="totalUsers">0</div>
+        <div class="stat-sub" id="enabledUsersSub">0 Active Subscribers</div>
+      </div>
+      <div class="stat-card glow-gold">
+        <div class="stat-title">Total Traffic</div>
+        <div class="stat-val" id="totalTraffic">0 B</div>
+        <div class="stat-sub" id="trafficSplit">⬆ TX: 0 B | ⬇ RX: 0 B</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">VPS RAM Usage</div>
+        <div class="stat-val" id="ramUsage">-- / -- MB</div>
+        <div class="stat-sub" id="ramLimitSub">Capacity Scaler Guardrail</div>
+      </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="table-section">
+      <div class="table-header">
+        <div class="table-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Subscribers & Access Tokens (کاربران و اشتراک‌ها)
+        </div>
+        <div>
+          <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search user or IP..." oninput="filterUsers()">
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Subscriber</th>
+              <th>Virtual IP (v4 / v6)</th>
+              <th>Camouflage</th>
+              <th>Quota Usage</th>
+              <th>Expiration</th>
+              <th>Speed Limit</th>
+              <th>Devices</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr>
+              <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 40px;">Loading subscribers...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create User Modal -->
+  <div class="modal-overlay" id="newUserModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Provision New Subscriber Token (ثبت کاربر جدید)</h2>
+        <button class="close-btn" onclick="closeNewUserModal()">&times;</button>
+      </div>
+      <form id="newUserForm" onsubmit="handleCreateUser(event)">
+        <div class="form-group">
+          <label>نام خریدار / شناسه کاربر</label>
+          <input type="text" class="form-input" id="userNameInput" placeholder="مثال: Ali - Mobile" required>
+        </div>
+
+        <div class="form-group">
+          <label>مدت زمان اشتراک (روز - 0 یا خالی = نامحدود)</label>
+          <input type="number" class="form-input" id="userDaysInput" value="30" min="0" placeholder="تعداد روز (0 = نامحدود)">
+          <div class="preset-btns">
+            <button type="button" class="preset-btn" onclick="setDays(30)">۳۰ روز</button>
+            <button type="button" class="preset-btn" onclick="setDays(60)">۶۰ روز</button>
+            <button type="button" class="preset-btn" onclick="setDays(90)">۹۰ روز</button>
+            <button type="button" class="preset-btn" onclick="setDays(365)">۱ سال</button>
+            <button type="button" class="preset-btn" onclick="setDays(0)">نامحدود</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>حجم ترافیک مجاز (گیگابایت - GB - عدد 0 یا خالی = نامحدود)</label>
+          <input type="number" class="form-input" id="userQuotaInput" value="50" min="0" placeholder="حجم به گیگابایت (0 = نامحدود)">
+          <div class="preset-btns">
+            <button type="button" class="preset-btn" onclick="setQuota(10)">10 GB</button>
+            <button type="button" class="preset-btn" onclick="setQuota(30)">30 GB</button>
+            <button type="button" class="preset-btn" onclick="setQuota(50)">50 GB</button>
+            <button type="button" class="preset-btn" onclick="setQuota(100)">100 GB</button>
+            <button type="button" class="preset-btn" onclick="setQuota(0)">نامحدود</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>محدودیت سرعت پهنای باند (Mbps - عدد 0 یا خالی = نامحدود)</label>
+          <input type="number" class="form-input" id="userSpeedInput" value="0" min="0" placeholder="سرعت به مگابیت (0 = نامحدود)">
+          <div class="preset-btns">
+            <button type="button" class="preset-btn" onclick="setSpeed(0)">نامحدود (Wire Speed)</button>
+            <button type="button" class="preset-btn" onclick="setSpeed(20)">20 Mbps</button>
+            <button type="button" class="preset-btn" onclick="setSpeed(50)">50 Mbps</button>
+            <button type="button" class="preset-btn" onclick="setSpeed(100)">100 Mbps</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Camouflage Protocol (استتار پروتکل)</label>
+          <select id="userProfileInput" class="form-input">
+            <option value="0">⚡ Auto / Default (QUIC v1 - Port 443)</option>
+            <option value="1">QUIC v2 (RFC 9369 - Port 443)</option>
+            <option value="4">DNS over UDP (RFC 1035 - Port 53)</option>
+            <option value="2">WebRTC Media Stream (Port 443)</option>
+            <option value="15">Discord Voice Gateway (Port 50001)</option>
+            <option value="3">DTLS 1.2 Handshake (Port 443)</option>
+            <option value="8">STUN Binding Request (RFC 5389 - Port 3478)</option>
+            <option value="9">TURN ChannelData (RFC 5766 - Port 3478)</option>
+            <option value="5">IPsec ESP UDP Encap (RFC 3948 - Port 4500)</option>
+            <option value="6">uTP BitTorrent (Port 6881)</option>
+            <option value="7">RakNet Minecraft BE (Port 19132)</option>
+            <option value="14">RDP Remote Desktop (MS-RDPBCGR - Port 3389)</option>
+            <option value="13">Zoom Media SFU Stream (Port 8801)</option>
+            <option value="10">Steam A2S Query Engine (Port 27015)</option>
+            <option value="11">Valve Steam Datagram Relay / CS2 (Port 27020)</option>
+            <option value="12">Riot Games League Protocol (Port 7500)</option>
+          </select>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
+            سرور از تمام ۱۶ پروتکل استتار پشتیبانی می‌کند. پروتکل پیش‌فرض توکن را انتخاب کنید.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>تعداد نشست‌های همزمان (بین ۱ تا ۳ - پیش‌فرض ۱)</label>
+          <input type="number" class="form-input" id="userMaxConnInput" value="1" min="1" max="3" placeholder="1" required>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
+            تعداد دستگاه‌های همزمان (۱، ۲ یا ۳). اتصال دستگاه جدیدتر باعث قطع و انتقال خودکار (Handover) می‌شود.
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 18px;">
+          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeNewUserModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">Generate Token</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit User Modal -->
+  <div class="modal-overlay" id="editUserModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Edit Subscriber (ویرایش مشخصات کاربر)</h2>
+        <button class="close-btn" onclick="closeEditUserModal()">&times;</button>
+      </div>
+      <form id="editUserForm" onsubmit="handleUpdateUser(event)">
+        <input type="hidden" id="editUserId">
+        <div class="form-group">
+          <label>Subscriber Name (نام خریدار)</label>
+          <input type="text" class="form-input" id="editUserName" required>
+        </div>
+        <div class="form-group">
+          <label>Set Expiration (مدت اعتبار به روز از امروز - 0 یا خالی = نامحدود)</label>
+          <input type="number" class="form-input" id="editUserDays" min="0" placeholder="روز از امروز (0 = نامحدود)">
+          <div class="preset-btns">
+            <button type="button" class="preset-btn" onclick="setEditDays(30)">+۳۰ روز</button>
+            <button type="button" class="preset-btn" onclick="setEditDays(60)">+۶۰ روز</button>
+            <button type="button" class="preset-btn" onclick="setEditDays(90)">+۹۰ روز</button>
+            <button type="button" class="preset-btn" onclick="setEditDays(0)">نامحدود</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Set Data Traffic Quota (حجم کل به گیگابایت GB - عدد 0 یا خالی = نامحدود)</label>
+          <input type="number" class="form-input" id="editUserQuota" min="0" placeholder="حجم کل به گیگابایت (0 = نامحدود)">
+          <div class="preset-btns">
+            <button type="button" class="preset-btn" onclick="setEditQuota(30)">30 GB</button>
+            <button type="button" class="preset-btn" onclick="setEditQuota(50)">50 GB</button>
+            <button type="button" class="preset-btn" onclick="setEditQuota(100)">100 GB</button>
+            <button type="button" class="preset-btn" onclick="setEditQuota(0)">نامحدود</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Speed Limit (محدودیت سرعت پهنای باند Mbps - 0 = نامحدود)</label>
+          <input type="number" class="form-input" id="editUserSpeed" min="0" placeholder="سرعت به مگابیت (0 = نامحدود)">
+          <div class="preset-btns">
+            <button type="button" class="preset-btn" onclick="setEditSpeed(0)">نامحدود (Wire Speed)</button>
+            <button type="button" class="preset-btn" onclick="setEditSpeed(20)">20 Mbps</button>
+            <button type="button" class="preset-btn" onclick="setEditSpeed(50)">50 Mbps</button>
+            <button type="button" class="preset-btn" onclick="setEditSpeed(100)">100 Mbps</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>تعداد نشست‌های همزمان (بین ۱ تا ۳ - پیش‌فرض ۱)</label>
+          <input type="number" class="form-input" id="editUserMaxConn" min="1" max="3" placeholder="1" required>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
+            تعداد دستگاه‌های همزمان (۱، ۲ یا ۳). اتصال دستگاه جدیدتر باعث انتقال خودکار (Handover) می‌شود.
+          </div>
+        </div>
+        <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255,255,255,0.04); border-radius: 8px;">
+          <div>
+            <div style="font-weight: 600; font-size: 13px;">Reset Used Traffic (صفر کردن ترافیک مصرفی)</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">حجم مصرف‌شده فعلی کاربر ریست شود</div>
+          </div>
+          <input type="checkbox" id="editResetTraffic" style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 18px;">
+          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeEditUserModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Token Display Modal -->
+  <div class="modal-overlay" id="tokenResultModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Subscriber Access Token</h2>
+        <button class="close-btn" onclick="closeTokenModal()">&times;</button>
+      </div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">
+        Share this encrypted token with the client. It can be imported with 1-click in CLI or GUI:
+      </p>
+      <textarea readonly class="token-display-box" id="tokenDisplayBox" onclick="this.select()"></textarea>
+      <div style="display: flex; gap: 12px; margin-top: 14px;">
+        <button class="btn btn-secondary" style="flex: 1;" onclick="closeTokenModal()">Close</button>
+        <button class="btn btn-primary" style="flex: 1;" onclick="copyTokenFromModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy Token
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const BASE_PATH = window.location.pathname.replace(/\/console\/?$/, '').replace(/\/$/, '');
+    let activeTokenToCopy = "";
+    let allUsersData = [];
+
+    // Fallback Clipboard Copy (Works over plain HTTP, IP addresses, and non-HTTPS origins)
+    function copyToClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise((resolve, reject) => {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try {
+          const successful = document.execCommand('copy');
+          document.body.removeChild(textarea);
+          if (successful) resolve();
+          else reject(new Error('execCommand copy failed'));
+        } catch (err) {
+          document.body.removeChild(textarea);
+          reject(err);
+        }
+      });
+    }
+
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.className = 'toast' + (isError ? ' error' : '');
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 3200);
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    function formatSpeed(bps) {
+      if (!bps || bps === 0) return "Unlimited";
+      const mbps = (bps * 8) / 1000000;
+      return mbps.toFixed(0) + " Mbps";
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds || seconds === 0) return "0s";
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (d > 0) return `${d}d ${h}h`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${seconds % 60}s`;
+    }
+
+    function formatExpiry(expiresAt) {
+      if (!expiresAt || expiresAt === 0) return `<span class="badge badge-muted">Unlimited</span>`;
+      const now = Math.floor(Date.now() / 1000);
+      if (now >= expiresAt) return `<span class="badge badge-danger">Expired</span>`;
+      const diff = expiresAt - now;
+      const days = Math.floor(diff / 86400);
+      const hours = Math.floor((diff % 86400) / 3600);
+      if (days > 0) return `<span class="badge badge-success">${days}d ${hours}h left</span>`;
+      return `<span class="badge badge-warning">${hours}h left</span>`;
+    }
+
+    async function fetchData() {
+      try {
+        const [statusRes, usersRes] = await Promise.all([
+          fetch(BASE_PATH + '/api/status'),
+          fetch(BASE_PATH + '/api/users')
+        ]);
+
+        if (statusRes.ok) {
+          const s = await statusRes.json();
+          document.getElementById('serverStatus').innerText = s.online ? "Online" : "Offline";
+          document.getElementById('uptimeSub').innerText = "Uptime: " + formatDuration(s.uptime_secs);
+          document.getElementById('activeSessions').innerText = s.active_sessions || 0;
+          document.getElementById('totalUsers').innerText = s.total_users || 0;
+          const totalTraffic = (s.total_traffic_bytes !== undefined) ? s.total_traffic_bytes : ((s.total_rx_bytes || 0) + (s.total_tx_bytes || 0));
+          document.getElementById('totalTraffic').innerText = formatBytes(totalTraffic);
+          document.getElementById('trafficSplit').innerText = `⬆ TX: ${formatBytes(s.total_tx_bytes || 0)} | ⬇ RX: ${formatBytes(s.total_rx_bytes || 0)}`;
+          const ramUsed = s.ram_used_mb || 0;
+          const ramTotal = s.ram_total_mb || 0;
+          const ramPct = ramTotal > 0 ? Math.round((ramUsed / ramTotal) * 100) : 0;
+          document.getElementById('ramUsage').innerText = ramTotal > 0 ? `${ramUsed} / ${ramTotal} MB (${ramPct}%)` : `${ramUsed} MB`;
+          document.getElementById('ramLimitSub').innerText = ramTotal > 0 ? `${ramUsed} MB used of ${ramTotal} MB total` : `Capacity Scaler Guardrail`;
+        }
+
+        if (usersRes.ok) {
+          allUsersData = await usersRes.json();
+          filterUsers();
+        }
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      }
+    }
+
+    function filterUsers() {
+      const q = (document.getElementById('searchInput').value || "").trim().toLowerCase();
+      if (!q) {
+        renderUsersTable(allUsersData);
+      } else {
+        const filtered = allUsersData.filter(u =>
+          (u.name && u.name.toLowerCase().includes(q)) ||
+          (u.id && u.id.toLowerCase().includes(q)) ||
+          (u.assigned_ipv4 && u.assigned_ipv4.includes(q)) ||
+          (u.assigned_ipv6 && u.assigned_ipv6.includes(q))
+        );
+        renderUsersTable(filtered);
+      }
+    }
+
+    function renderUsersTable(users) {
+      const tbody = document.getElementById('usersTableBody');
+      if (!users || users.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px;">No subscribers found. Click "Create Subscriber" to add one.</td></tr>`;
+        return;
+      }
+
+      let activeCount = 0;
+      let html = "";
+      users.forEach(u => {
+        if (u.enabled) activeCount++;
+        const quotaTotal = u.quota_bytes || 0;
+        const used = u.used_bytes || 0;
+        const pct = quotaTotal > 0 ? Math.min(100, Math.round((used / quotaTotal) * 100)) : 0;
+        const barClass = pct >= 90 ? "danger" : "";
+
+        const statusBadge = !u.enabled
+          ? `<span class="badge badge-danger">Disabled</span>`
+          : (u.expires_at > 0 && Math.floor(Date.now() / 1000) > u.expires_at)
+            ? `<span class="badge badge-danger">Expired</span>`
+            : (quotaTotal > 0 && used >= quotaTotal)
+              ? `<span class="badge badge-danger">Over Quota</span>`
+              : `<span class="badge badge-success">Active</span>`;
+
+        html += `
+          <tr>
+            <td>
+              <div class="user-info">
+                <span class="user-name">${escapeHtml(u.name)}</span>
+                <span class="user-id">${u.id}</span>
+              </div>
+            </td>
+            <td>
+              <div style="font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px;">${u.assigned_ipv4 || '-'}<br><span style="color: var(--text-muted); font-size: 11px;">${u.assigned_ipv6 || '-'}</span></div>
+            </td>
+            <td><span class="badge badge-auto">${escapeHtml(u.profile_name || 'AUTO')}</span></td>
+            <td>
+              <div style="font-size: 12.5px;">${formatBytes(used)} / ${quotaTotal > 0 ? formatBytes(quotaTotal) : '∞'}</div>
+              ${quotaTotal > 0 ? `<div class="progress-bar-bg"><div class="progress-bar-fill ${barClass}" style="width: ${pct}%"></div></div>` : ''}
+            </td>
+            <td>${formatExpiry(u.expires_at)}</td>
+            <td>${formatSpeed(u.speed_limit_bps)}</td>
+            <td>${u.active_sockets || 0} / ${u.max_connections || 1}</td>
+            <td>${statusBadge}</td>
+            <td>
+              <div class="actions-cell">
+                <button class="btn btn-secondary btn-sm" title="Copy Token" onclick="copyUserToken('${u.id}')">
+                  📋
+                </button>
+                <button class="btn btn-secondary btn-sm" title="+30 Days (تمدید سریع)" onclick="extendUserQuick('${u.id}', 30, 0)">
+                  +30D
+                </button>
+                <button class="btn btn-secondary btn-sm" title="Edit Subscriber" onclick="openEditUserModal('${u.id}')">
+                  ✏️
+                </button>
+                <button class="btn btn-secondary btn-sm" title="Toggle Active" onclick="toggleUser('${u.id}')">
+                  ${u.enabled ? '⏸' : '▶'}
+                </button>
+                <button class="btn btn-danger btn-sm" title="Delete User" onclick="deleteUser('${u.id}', '${escapeHtml(u.name)}')">
+                  🗑
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+
+      document.getElementById('enabledUsersSub').innerText = `${activeCount} Active Subscribers`;
+      tbody.innerHTML = html;
+    }
+
+    function escapeHtml(s) {
+      return (s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function openNewUserModal() {
+      document.getElementById('newUserModal').classList.add('active');
+    }
+    function closeNewUserModal() {
+      document.getElementById('newUserModal').classList.remove('active');
+    }
+    function setDays(d) { document.getElementById('userDaysInput').value = d; }
+    function setQuota(q) { document.getElementById('userQuotaInput').value = q; }
+    function setSpeed(s) { document.getElementById('userSpeedInput').value = s; }
+
+    function openEditUserModal(userId) {
+      const u = allUsersData.find(x => x.id === userId);
+      if (!u) return;
+      document.getElementById('editUserId').value = u.id;
+      document.getElementById('editUserName').value = u.name;
+      
+      const now = Math.floor(Date.now() / 1000);
+      let remainingDays = "";
+      if (u.expires_at === 0) {
+        remainingDays = "0"; // Unlimited
+      } else if (u.expires_at > now) {
+        remainingDays = Math.max(1, Math.round((u.expires_at - now) / 86400)).toString();
+      } else {
+        remainingDays = ""; // Expired: default to empty so saving won't turn into lifetime
+      }
+      document.getElementById('editUserDays').value = remainingDays;
+      
+      const quotaGb = u.quota_bytes > 0 ? Math.round(u.quota_bytes / (1024 * 1024 * 1024)) : 0;
+      document.getElementById('editUserQuota').value = quotaGb;
+      
+      const speedMbps = u.speed_limit_bps > 0 ? Math.round((u.speed_limit_bps * 8) / 1000000) : 0;
+      document.getElementById('editUserSpeed').value = speedMbps.toString();
+      
+      let maxConn = u.max_connections || 1;
+      if (maxConn < 1) maxConn = 1;
+      if (maxConn > 3) maxConn = 3;
+      document.getElementById('editUserMaxConn').value = maxConn.toString();
+      document.getElementById('editResetTraffic').checked = false;
+
+      document.getElementById('editUserModal').classList.add('active');
+    }
+
+    function closeEditUserModal() {
+      document.getElementById('editUserModal').classList.remove('active');
+    }
+
+    function setEditDays(d) {
+      if (d === 0) {
+        document.getElementById('editUserDays').value = 0;
+      } else {
+        const cur = parseInt(document.getElementById('editUserDays').value, 10) || 0;
+        document.getElementById('editUserDays').value = cur + d;
+      }
+    }
+    function setEditQuota(q) { document.getElementById('editUserQuota').value = q; }
+    function setEditSpeed(s) { document.getElementById('editUserSpeed').value = s; }
+
+    async function extendUserQuick(userId, days, quotaGb) {
+      try {
+        const res = await fetch(`${BASE_PATH}/api/users/${userId}/extend`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ days: days || 0, quota_gb: quotaGb || 0 })
+        });
+        if (res.ok) {
+          showToast(`✅ Successfully extended subscriber by ${days} days!`);
+          fetchData();
+        } else {
+          showToast("⚠️ Extension failed: " + (await res.text()), true);
+        }
+      } catch (err) {
+        showToast("⚠️ Network error: " + err, true);
+      }
+    }
+
+    async function handleUpdateUser(e) {
+      e.preventDefault();
+      const userId = document.getElementById('editUserId').value;
+      const name = document.getElementById('editUserName').value.trim();
+      const daysInput = document.getElementById('editUserDays').value.trim();
+      const set_quota_gb = parseInt(document.getElementById('editUserQuota').value, 10) || 0;
+      const speed_mbps = parseInt(document.getElementById('editUserSpeed').value, 10) || 0;
+      let max_connections = parseInt(document.getElementById('editUserMaxConn').value, 10) || 1;
+      if (max_connections < 1) max_connections = 1;
+      if (max_connections > 3) max_connections = 3;
+      const reset_traffic = document.getElementById('editResetTraffic').checked;
+
+      const payload = {
+        name,
+        set_quota_gb,
+        speed_mbps,
+        max_connections,
+        reset_traffic
+      };
+      if (daysInput !== "") {
+        payload.days_from_now = parseInt(daysInput, 10) || 0;
+      }
+
+      try {
+        const res = await fetch(`${BASE_PATH}/api/users/${userId}/update`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          closeEditUserModal();
+          showToast("✅ Subscriber updated successfully!");
+          fetchData();
+        } else {
+          showToast("⚠️ Update failed: " + (await res.text()), true);
+        }
+      } catch (err) {
+        showToast("⚠️ Network error: " + err, true);
+      }
+    }
+
+    async function handleCreateUser(e) {
+      e.preventDefault();
+      const name = document.getElementById('userNameInput').value.trim();
+      const days = parseInt(document.getElementById('userDaysInput').value, 10) || 0;
+      const quota_gb = parseInt(document.getElementById('userQuotaInput').value, 10) || 0;
+      const speed_mbps = parseInt(document.getElementById('userSpeedInput').value, 10) || 0;
+      const profile_id = parseInt(document.getElementById('userProfileInput').value, 10) || 0;
+      let max_connections = parseInt(document.getElementById('userMaxConnInput').value, 10) || 1;
+      if (max_connections < 1) max_connections = 1;
+      if (max_connections > 3) max_connections = 3;
+
+      try {
+        const res = await fetch(BASE_PATH + '/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, days, quota_gb, speed_mbps, profile_id, max_connections })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          closeNewUserModal();
+          showTokenResult(data.token_uri);
+          fetchData();
+        } else {
+          showToast("⚠️ Failed to create subscriber: " + (await res.text()), true);
+        }
+      } catch (err) {
+        showToast("⚠️ Network error: " + err, true);
+      }
+    }
+
+    function showTokenResult(tokenUri) {
+      activeTokenToCopy = tokenUri;
+      document.getElementById('tokenDisplayBox').value = tokenUri;
+      document.getElementById('tokenResultModal').classList.add('active');
+    }
+    function closeTokenModal() {
+      document.getElementById('tokenResultModal').classList.remove('active');
+    }
+    function copyTokenFromModal() {
+      copyToClipboard(activeTokenToCopy).then(() => {
+        showToast("✅ Token copied to clipboard!");
+      }).catch(() => {
+        showToast("⚠️ Clipboard error. Token is selected in box, copy manually.");
+      });
+    }
+
+    async function copyUserToken(userId) {
+      try {
+        const res = await fetch(`${BASE_PATH}/api/users/${userId}/token`);
+        if (res.ok) {
+          const data = await res.json();
+          copyToClipboard(data.token_uri).then(() => {
+            showToast("✅ Token copied to clipboard!");
+          }).catch(() => {
+            showTokenResult(data.token_uri);
+          });
+        } else {
+          showToast("⚠️ Failed to fetch token", true);
+        }
+      } catch (err) {
+        showToast("⚠️ Error: " + err, true);
+      }
+    }
+
+    async function toggleUser(userId) {
+      try {
+        await fetch(`${BASE_PATH}/api/users/${userId}/toggle`, { method: 'POST' });
+        showToast("Status toggled");
+        fetchData();
+      } catch (err) {
+        showToast("⚠️ Error: " + err, true);
+      }
+    }
+
+    async function deleteUser(userId, name) {
+      if (!confirm(`Are you sure you want to delete subscriber "${name}"?`)) return;
+      try {
+        await fetch(`${BASE_PATH}/api/users/${userId}`, { method: 'DELETE' });
+        showToast("Subscriber deleted");
+        fetchData();
+      } catch (err) {
+        showToast("⚠️ Error: " + err, true);
+      }
+    }
+
+    // Auto-refresh every 3.5 seconds
+    setInterval(fetchData, 3500);
+    fetchData();
+  </script>
+</body>
+</html>

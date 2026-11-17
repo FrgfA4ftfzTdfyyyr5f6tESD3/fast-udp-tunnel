@@ -1,0 +1,26 @@
+# ==============================================================================
+# Morph Core — Diagnostic & Leak Test Services (Compile-Time Included)
+# Ensures user privacy audits, DNS leak tests, and IP checkers exit via the tunnel.
+# ==============================================================================
+
+# dnsleaktest.com (Linode / Akamai)
+23.239.16.110/32
+23.239.16.111/32
+
+# browserleaks.com
+82.165.197.1/32
+
+# ipleak.net / AirVPN
+5.188.11.13/32
+5.188.11.14/32
+
+# dnsleak.com (Cloudflare)
+104.21.65.23/32
+172.67.185.12/32
+
+# ipinfo.io
+34.117.59.81/32
+
+# whoer.net
+146.70.158.0/24
+146.70.175.0/24

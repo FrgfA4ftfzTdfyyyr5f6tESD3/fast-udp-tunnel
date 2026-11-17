@@ -1,0 +1,28 @@
+# Rust / Cargo build outputs
+target/
+rust-client/target/
+rust-client/gen/
+
+# Compiled binaries & runtime artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.tar.gz
+*.b64
+*.log
+fast-udp-tunnel-linux
+
+# Private user credentials, profiles & server databases (NEVER commit!)
+morph_profiles.dat
+profiles.dat
+users.json
+admin_config.json
+test_user.json
+*.key
+*.pem
+
+# Local logs & scratch directories
+logs/
+.DS_Store
+Thumbs.db

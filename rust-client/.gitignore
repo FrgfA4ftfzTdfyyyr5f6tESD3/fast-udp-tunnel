@@ -1,0 +1,9 @@
+/target
+/gen
+*.exe
+*.dll
+*.log
+morph_profiles.dat
+profiles.dat
+users.json
+admin_config.json
