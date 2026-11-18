@@ -50,6 +50,47 @@ pub extern "system" fn Java_com_morphcore_vpn_MorphNative_prepareSocket<'local>(
 }
 
 /// Kotlin signature:
+/// `external fun prepareSocketEx(token: String, mimicOverride: String?, payloadModeOverride: String?, transportOverride: String?, portOverride: Int): Int`
+///
+/// Extended socket preparation supporting transport preference (`"auto"`, `"ipv6"`, `"ipv4"`)
+/// and custom port override (`0` = use token default).
+#[no_mangle]
+pub extern "system" fn Java_com_morphcore_vpn_MorphNative_prepareSocketEx<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    token: JString<'local>,
+    mimic_override: JString<'local>,
+    payload_mode_override: JString<'local>,
+    transport_override: JString<'local>,
+    port_override: jint,
+) -> jint {
+    let token_str = match extract_optional_string(&mut env, &token) {
+        Some(s) => s,
+        None => return -1,
+    };
+
+    let mimic_opt = extract_optional_string(&mut env, &mimic_override);
+    let mode_opt = extract_optional_string(&mut env, &payload_mode_override);
+    let transport_opt = extract_optional_string(&mut env, &transport_override);
+    let port_u16 = if (1..=65535).contains(&port_override) {
+        port_override as u16
+    } else {
+        0
+    };
+
+    match android_engine::prepare_socket_ex(
+        &token_str,
+        mimic_opt.as_deref(),
+        mode_opt.as_deref(),
+        transport_opt.as_deref(),
+        port_u16,
+    ) {
+        Ok(fd) => fd as jint,
+        Err(_) => -1,
+    }
+}
+
+/// Kotlin signature:
 /// `external fun startTunnel(tunFd: Int): Boolean`
 ///
 /// Launches background full-duplex Rust worker threads bridging Android's VpnService `tunFd`

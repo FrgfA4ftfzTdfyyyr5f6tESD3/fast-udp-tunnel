@@ -1,10 +1,16 @@
 #![cfg(target_os = "android")]
-//! Android VpnService Full-Duplex Forwarding Engine for Morph Core (v8.5).
-//! Reuses the exact common/core/mimic protocol pipeline (1200B micro-segmentation,
-//! all 16 camouflage profiles, all 3 payload protection modes, in-band ICMP RTT telemetry)
-//! while bridging directly to Android's VpnService TUN file descriptor.
+//! Android VpnService Full-Duplex High-Throughput Engine for Morph Core (v8.7).
+//!
+//! Architecture engineered to match the 21+ Mbps Windows Wintun client on mobile LTE/5G:
+//! - Batch UDP Receive via `libc::recvmmsg` (up to 32 packets per syscall, zero heap allocation in hot loop)
+//! - Non-blocking TUN Burst Drain (up to 64 IP packets per poll wakeup, 0% idle CPU)
+//! - Adaptive Kernel Socket Buffers (8MB -> 4MB -> 2MB fallback via `SO_RCVBUF`/`SO_SNDBUF`)
+//! - Golden 1200-byte Micro-Segmentation (zero carrier fragmentation on cellular networks)
+//! - RFC 6296 Checksum-Neutral NPTv6 (`2001:db8:0:cf4f::/64` <-> `fd00:8:0::/64`):
+//!   Elevates Android TUN IPv6 above IPv4 in RFC 6724 (`::/0` prec=40 > `::ffff:0:0/96` prec=35)
+//!   so Chrome, Gemini, and Android apps always exit via the server's clean IPv6 first while
+//!   preserving IPv4 fallback — with zero checksum recomputation (`0x2001+0x0db8+0x0000+0xcf4f == 0xfd08`).
 
-use std::io;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -23,7 +29,43 @@ use crate::core::crypto::{apply_payload_shaping, strip_payload_shaping, PayloadM
 use crate::core::metrics::{MetricTracker, TunnelStatus, TunnelTelemetry};
 use crate::mimic::MimicProfile;
 
-const ANDROID_SOCKET_BUF_SIZE: libc::c_int = 4 * 1024 * 1024; // 4 MB socket buffers for mobile LTE/5G
+const RX_BATCH_SIZE: usize = 32;
+const TX_BURST_MAX: usize = 64;
+const PACKET_SLOT_SIZE: usize = 2048;
+
+/// Global-scope IPv6 /64 prefix assigned to Android's VpnService TUN (`2001:db8:0:cf4f::/64`).
+/// Checksum sum: 0x2001 + 0x0db8 + 0x0000 + 0xcf4f = 0xFD08 (identical to `fd00:0008:0000:0000`).
+const ANDROID_GLOBAL_V6_PREFIX: [u8; 8] = [0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0xcf, 0x4f];
+
+/// Server tunnel internal ULA IPv6 /64 prefix (`fd00:8::/64`).
+/// Checksum sum: 0xfd00 + 0x0008 + 0x0000 + 0x0000 = 0xFD08.
+const TUNNEL_ULA_V6_PREFIX: [u8; 8] = [0xfd, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00];
+
+/// Checksum-neutral stateless NPTv6 rewrite for outbound IPv6 packets (Android TUN -> Server).
+#[inline(always)]
+fn translate_v6_outbound(pkt: &mut [u8]) {
+    if pkt.len() >= 40 && (pkt[0] >> 4) == 6 {
+        if pkt[8..16] == ANDROID_GLOBAL_V6_PREFIX {
+            pkt[8..16].copy_from_slice(&TUNNEL_ULA_V6_PREFIX);
+        }
+        if pkt[24..32] == ANDROID_GLOBAL_V6_PREFIX {
+            pkt[24..32].copy_from_slice(&TUNNEL_ULA_V6_PREFIX);
+        }
+    }
+}
+
+/// Checksum-neutral stateless NPTv6 rewrite for inbound IPv6 packets (Server -> Android TUN).
+#[inline(always)]
+fn translate_v6_inbound(pkt: &mut [u8]) {
+    if pkt.len() >= 40 && (pkt[0] >> 4) == 6 {
+        if pkt[24..32] == TUNNEL_ULA_V6_PREFIX {
+            pkt[24..32].copy_from_slice(&ANDROID_GLOBAL_V6_PREFIX);
+        }
+        if pkt[8..16] == TUNNEL_ULA_V6_PREFIX {
+            pkt[8..16].copy_from_slice(&ANDROID_GLOBAL_V6_PREFIX);
+        }
+    }
+}
 
 struct PreparedSession {
     socket: UdpSocket,
@@ -71,22 +113,58 @@ fn counters() -> &'static AndroidCounters {
 
 fn configure_android_socket_buffers(socket: &UdpSocket) {
     let fd = socket.as_raw_fd();
+    // Try largest buffer down to 1 MB so Android grants the maximum allowed by net.core.{r,w}mem_max
+    for &size in &[
+        8 * 1024 * 1024 as libc::c_int,
+        4 * 1024 * 1024 as libc::c_int,
+        2 * 1024 * 1024 as libc::c_int,
+        1 * 1024 * 1024 as libc::c_int,
+    ] {
+        let rc_r = unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_RCVBUF,
+                &size as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        if rc_r == 0 {
+            break;
+        }
+    }
+    for &size in &[
+        8 * 1024 * 1024 as libc::c_int,
+        4 * 1024 * 1024 as libc::c_int,
+        2 * 1024 * 1024 as libc::c_int,
+        1 * 1024 * 1024 as libc::c_int,
+    ] {
+        let rc_s = unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_SNDBUF,
+                &size as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        if rc_s == 0 {
+            break;
+        }
+    }
+}
+
+fn set_fd_nonblocking(fd: RawFd, nonblocking: bool) {
     unsafe {
-        let size = ANDROID_SOCKET_BUF_SIZE;
-        let _ = libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_RCVBUF,
-            &size as *const _ as *const libc::c_void,
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
-        let _ = libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_SNDBUF,
-            &size as *const _ as *const libc::c_void,
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
+        let flags = libc::fcntl(fd, libc::F_GETFL, 0);
+        if flags >= 0 {
+            let new_flags = if nonblocking {
+                flags | libc::O_NONBLOCK
+            } else {
+                flags & !libc::O_NONBLOCK
+            };
+            let _ = libc::fcntl(fd, libc::F_SETFL, new_flags);
+        }
     }
 }
 
@@ -99,37 +177,83 @@ fn format_v6_endpoint(host: &str, port: u16) -> String {
     }
 }
 
-/// Bind and connect a UDP socket to the best reachable server endpoint (IPv6 preferred, IPv4 fallback).
-/// Note: Calling `connect()` on a UDP socket does not transmit any packets on the wire;
-/// it validates route reachability and associates the peer so Android can immediately call `VpnService.protect(fd)`.
-fn create_connected_android_socket(token: &SubscriptionToken) -> Result<UdpSocket, String> {
-    let port = token.port;
+fn try_connect_v6(v6_host: &str, port: u16) -> Option<UdpSocket> {
+    let ep_str = format_v6_endpoint(v6_host, port);
+    let addr = ep_str.parse::<SocketAddr>().ok()?;
+    let sock = UdpSocket::bind("[::]:0").ok()?;
+    sock.connect(addr).ok()?;
+    configure_android_socket_buffers(&sock);
+    let _ = sock.set_read_timeout(Some(Duration::from_millis(100)));
+    Some(sock)
+}
 
-    // 1. Prefer IPv6 if present in token and routable on the current cellular/Wi-Fi network
-    if let Some(ref v6_host) = token.server_v6 {
-        let ep_str = format_v6_endpoint(v6_host, port);
-        if let Ok(addr) = ep_str.parse::<SocketAddr>() {
-            if let Ok(sock) = UdpSocket::bind("[::]:0") {
-                if sock.connect(addr).is_ok() {
-                    configure_android_socket_buffers(&sock);
-                    let _ = sock.set_read_timeout(Some(Duration::from_millis(100)));
+fn try_connect_v4(v4_host: &str, port: u16) -> Option<UdpSocket> {
+    let ep_str = format!("{}:{}", v4_host.trim(), port);
+    let addr = ep_str.parse::<SocketAddr>().ok()?;
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect(addr).ok()?;
+    configure_android_socket_buffers(&sock);
+    let _ = sock.set_read_timeout(Some(Duration::from_millis(100)));
+    Some(sock)
+}
+
+/// Bind and connect a UDP socket respecting `transport_override` (`"auto"`, `"ipv6"`, `"ipv4"`)
+/// and optional `port_override` (`1..=65535`).
+fn create_connected_android_socket(
+    token: &SubscriptionToken,
+    transport_override: Option<&str>,
+    port_override: u16,
+) -> Result<UdpSocket, String> {
+    let port = if port_override > 0 {
+        port_override
+    } else {
+        token.port
+    };
+
+    let pref = transport_override
+        .map(str::trim)
+        .unwrap_or("auto")
+        .to_ascii_lowercase();
+
+    match pref.as_str() {
+        "ipv4" | "v4" | "4" => {
+            if let Some(ref v4) = token.server_v4 {
+                if let Some(sock) = try_connect_v4(v4, port) {
+                    return Ok(sock);
+                }
+            }
+            if let Some(ref v6) = token.server_v6 {
+                if let Some(sock) = try_connect_v6(v6, port) {
                     return Ok(sock);
                 }
             }
         }
-    }
-
-    // 2. Fallback to IPv4
-    if let Some(ref v4_host) = token.server_v4 {
-        let ep_str = format!("{}:{}", v4_host.trim(), port);
-        if let Ok(addr) = ep_str.parse::<SocketAddr>() {
-            let sock = UdpSocket::bind("0.0.0.0:0")
-                .map_err(|e| format!("Failed to bind IPv4 UDP socket: {}", e))?;
-            sock.connect(addr)
-                .map_err(|e| format!("Failed to connect IPv4 UDP socket to {}: {}", addr, e))?;
-            configure_android_socket_buffers(&sock);
-            let _ = sock.set_read_timeout(Some(Duration::from_millis(100)));
-            return Ok(sock);
+        "ipv6" | "v6" | "6" => {
+            if let Some(ref v6) = token.server_v6 {
+                if let Some(sock) = try_connect_v6(v6, port) {
+                    return Ok(sock);
+                }
+            }
+            // Fallback to IPv4 if current network has no IPv6 default route (e.g. IPv4-only Wi-Fi);
+            // inner tunnel egress still prioritizes clean IPv6 via NPTv6!
+            if let Some(ref v4) = token.server_v4 {
+                if let Some(sock) = try_connect_v4(v4, port) {
+                    return Ok(sock);
+                }
+            }
+        }
+        _ => {
+            // Auto: prefer IPv6 transport when routable, seamless IPv4 fallback
+            if let Some(ref v6) = token.server_v6 {
+                if let Some(sock) = try_connect_v6(v6, port) {
+                    return Ok(sock);
+                }
+            }
+            if let Some(ref v4) = token.server_v4 {
+                if let Some(sock) = try_connect_v4(v4, port) {
+                    return Ok(sock);
+                }
+            }
         }
     }
 
@@ -176,15 +300,16 @@ fn is_routable_unicast(packet: &[u8]) -> bool {
     }
 }
 
-/// Step 1 of Android VpnService flow:
+/// Step 1 of Android VpnService flow (extended with transport & port override):
 /// Parses the `morph://` token and optional overrides, creates & connects the UDP socket,
 /// stores the prepared session, and returns the raw `udp_socket_fd` for `VpnService.protect(fd)`.
-pub fn prepare_socket(
+pub fn prepare_socket_ex(
     token_uri: &str,
     mimic_override: Option<&str>,
     payload_mode_override: Option<&str>,
+    transport_override: Option<&str>,
+    port_override: u16,
 ) -> Result<RawFd, String> {
-    // Cleanly stop any previously running tunnel before preparing a new socket
     stop_tunnel();
 
     let token = SubscriptionToken::from_uri(token_uri)?;
@@ -216,7 +341,7 @@ pub fn prepare_socket(
         .map(|ip| ip.octets())
         .unwrap_or([10, 8, 0, 2]);
 
-    let socket = create_connected_android_socket(&token)?;
+    let socket = create_connected_android_socket(&token, transport_override, port_override)?;
     let raw_fd = socket.as_raw_fd();
 
     let telem = TunnelTelemetry::global();
@@ -239,8 +364,47 @@ pub fn prepare_socket(
     Ok(raw_fd)
 }
 
+/// Backwards-compatible wrapper for `prepareSocket(token, mimicOverride, payloadModeOverride)`.
+pub fn prepare_socket(
+    token_uri: &str,
+    mimic_override: Option<&str>,
+    payload_mode_override: Option<&str>,
+) -> Result<RawFd, String> {
+    prepare_socket_ex(token_uri, mimic_override, payload_mode_override, None, 0)
+}
+
+#[inline(always)]
+fn deliver_inbound_packet(
+    tun_fd: RawFd,
+    ip_pkt: &mut [u8],
+    metrics: &MetricTracker,
+) {
+    if ip_pkt.is_empty() {
+        return;
+    }
+
+    // Demux in-band ICMP Echo Reply for live RTT telemetry
+    if metrics.handle_possible_probe_reply(ip_pkt) {
+        return;
+    }
+
+    // Checksum-neutral NPTv6 rewrite (`fd00:8::/64` -> `2001:db8:0:cf4f::/64`)
+    translate_v6_inbound(ip_pkt);
+
+    let written = unsafe {
+        libc::write(
+            tun_fd,
+            ip_pkt.as_ptr() as *const libc::c_void,
+            ip_pkt.len(),
+        )
+    };
+    if written > 0 {
+        counters().rx_packets.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// Step 2 of Android VpnService flow (called AFTER `VpnService.protect(udpFd)` succeeds):
-/// Starts full-duplex background forwarding threads bridging Android `tun_fd` <-> connected UDP socket.
+/// Starts high-throughput full-duplex Rust worker threads bridging Android `tun_fd` <-> protected UDP socket.
 /// Rust NEVER closes `tun_fd`; Android's `ParcelFileDescriptor` retains ownership.
 pub fn start_tunnel(tun_fd: RawFd) -> Result<(), String> {
     if tun_fd < 0 {
@@ -265,7 +429,7 @@ pub fn start_tunnel(tun_fd: RawFd) -> Result<(), String> {
         src_v4_bytes,
     } = prepared;
 
-    // Reset telemetry & packet counters for the fresh session
+    // Reset telemetry & packet counters
     let c = counters();
     c.rx_packets.store(0, Ordering::Relaxed);
     c.tx_packets.store(0, Ordering::Relaxed);
@@ -280,13 +444,16 @@ pub fn start_tunnel(tun_fd: RawFd) -> Result<(), String> {
     telem.pmtu.store(TUNNEL_MTU as u16, Ordering::Relaxed);
     telem.set_status(TunnelStatus::Connected);
 
+    // Enable non-blocking mode on TUN fd for zero-jitter burst draining
+    set_fd_nonblocking(tun_fd, true);
+
     let running = Arc::new(AtomicBool::new(true));
     let metrics = Arc::new(MetricTracker::new());
     let seq_counter = Arc::new(AtomicU32::new(1));
     let last_tx_epoch = Arc::new(AtomicU64::new(0));
     let tunnel_start = Instant::now();
 
-    // Send initial MTU handshake keepalive (guaranteed standard 1500B inner MTU backed by 1200B micro-segmentation)
+    // Send initial MTU handshake keepalives (1500B inner MTU backed by 1200B micro-segmentation)
     for _ in 0..2 {
         let mut init_wire = [0u8; MIMICRY_HEADER_LEN + 4];
         let init_seq = (seq_counter.fetch_add(1, Ordering::Relaxed) & 0xFFFF) as u16;
@@ -306,7 +473,7 @@ pub fn start_tunnel(tun_fd: RawFd) -> Result<(), String> {
         .try_clone()
         .map_err(|e| format!("Failed to clone UDP socket for prober thread: {}", e))?;
 
-    // Thread 1: Android TUN fd -> 1200B Micro-Segmentation -> Payload Shaping -> Mimicry Header -> Connected UDP
+    // Thread 1: Android TUN (Non-blocking Burst Drain) -> NPTv6 -> 1200B Micro-Segmentation -> Connected UDP
     let running_t2u = Arc::clone(&running);
     let metrics_t2u = Arc::clone(&metrics);
     let seq_t2u = Arc::clone(&seq_counter);
@@ -315,8 +482,8 @@ pub fn start_tunnel(tun_fd: RawFd) -> Result<(), String> {
     let handle_t2u = thread::Builder::new()
         .name("android_tun_to_udp".into())
         .spawn(move || {
-            let mut tun_buf = [0u8; 2048];
-            let mut wire_buf = [0u8; 2048];
+            let mut tun_buf = [0u8; PACKET_SLOT_SIZE];
+            let mut wire_buf = [0u8; PACKET_SLOT_SIZE];
             let mut pfd = libc::pollfd {
                 fd: tun_fd,
                 events: libc::POLLIN,
@@ -336,188 +503,194 @@ pub fn start_tunnel(tun_fd: RawFd) -> Result<(), String> {
                     continue;
                 }
 
-                let n = unsafe {
-                    libc::read(
-                        tun_fd,
-                        tun_buf.as_mut_ptr() as *mut libc::c_void,
-                        tun_buf.len(),
-                    )
-                };
-                if n <= 0 {
-                    continue;
+                // Drain up to TX_BURST_MAX packets per kernel wakeup without extra poll() syscalls
+                let mut batch_bytes: u64 = 0;
+                let mut batch_pkts: u64 = 0;
+
+                for _ in 0..TX_BURST_MAX {
+                    let n = unsafe {
+                        libc::read(
+                            tun_fd,
+                            tun_buf.as_mut_ptr() as *mut libc::c_void,
+                            tun_buf.len(),
+                        )
+                    };
+                    if n <= 0 {
+                        break;
+                    }
+
+                    let len = n as usize;
+                    let pkt_slice = &mut tun_buf[..len];
+                    if !is_routable_unicast(pkt_slice) {
+                        continue;
+                    }
+
+                    // Checksum-neutral NPTv6 rewrite (`2001:db8:0:cf4f::/64` -> `fd00:8::/64`)
+                    translate_v6_outbound(pkt_slice);
+
+                    if should_fragment(len) {
+                        let seq = (seq_t2u.fetch_add(1, Ordering::Relaxed) & 0xFFFF) as u16;
+                        let (frag1, frag2) = split_packet(pkt_slice);
+
+                        // Frag 1
+                        let payload_out1 = &mut wire_buf[MIMICRY_HEADER_LEN..];
+                        let shaped_len1 =
+                            apply_payload_shaping(frag1, payload_out1, &psk, seq, mode, profile);
+                        let wire_len1 = MIMICRY_HEADER_LEN + shaped_len1;
+                        let flags1 = FLAG_FRAG_1 | mode.to_flags();
+                        profile.wrap_header(&mut wire_buf[..wire_len1], flags1, seq, &psk);
+                        let _ = socket_t2u.send(&wire_buf[..wire_len1]);
+
+                        // Frag 2
+                        let payload_out2 = &mut wire_buf[MIMICRY_HEADER_LEN..];
+                        let shaped_len2 =
+                            apply_payload_shaping(frag2, payload_out2, &psk, seq, mode, profile);
+                        let wire_len2 = MIMICRY_HEADER_LEN + shaped_len2;
+                        let flags2 = FLAG_FRAG_2 | mode.to_flags();
+                        profile.wrap_header(&mut wire_buf[..wire_len2], flags2, seq, &psk);
+                        let _ = socket_t2u.send(&wire_buf[..wire_len2]);
+
+                        batch_bytes += (wire_len1 + wire_len2) as u64;
+                        batch_pkts += 1;
+                    } else {
+                        let seq = (seq_t2u.fetch_add(1, Ordering::Relaxed) & 0xFFFF) as u16;
+                        let payload_out = &mut wire_buf[MIMICRY_HEADER_LEN..];
+                        let shaped_len =
+                            apply_payload_shaping(pkt_slice, payload_out, &psk, seq, mode, profile);
+                        let total_wire_len = MIMICRY_HEADER_LEN + shaped_len;
+                        let full_flags = FLAG_DATA | mode.to_flags();
+                        profile.wrap_header(&mut wire_buf[..total_wire_len], full_flags, seq, &psk);
+
+                        if socket_t2u.send(&wire_buf[..total_wire_len]).is_ok() {
+                            batch_bytes += total_wire_len as u64;
+                            batch_pkts += 1;
+                        }
+                    }
                 }
 
-                let len = n as usize;
-                let pkt_slice = &tun_buf[..len];
-                if !is_routable_unicast(pkt_slice) {
-                    continue;
-                }
-
-                if should_fragment(len) {
-                    let seq = (seq_t2u.fetch_add(1, Ordering::Relaxed) & 0xFFFF) as u16;
-                    let (frag1, frag2) = split_packet(pkt_slice);
-
-                    // Frag 1
-                    let payload_out1 = &mut wire_buf[MIMICRY_HEADER_LEN..];
-                    let shaped_len1 =
-                        apply_payload_shaping(frag1, payload_out1, &psk, seq, mode, profile);
-                    let wire_len1 = MIMICRY_HEADER_LEN + shaped_len1;
-                    let flags1 = FLAG_FRAG_1 | mode.to_flags();
-                    profile.wrap_header(&mut wire_buf[..wire_len1], flags1, seq, &psk);
-                    let _ = socket_t2u.send(&wire_buf[..wire_len1]);
-
-                    // Frag 2
-                    let payload_out2 = &mut wire_buf[MIMICRY_HEADER_LEN..];
-                    let shaped_len2 =
-                        apply_payload_shaping(frag2, payload_out2, &psk, seq, mode, profile);
-                    let wire_len2 = MIMICRY_HEADER_LEN + shaped_len2;
-                    let flags2 = FLAG_FRAG_2 | mode.to_flags();
-                    profile.wrap_header(&mut wire_buf[..wire_len2], flags2, seq, &psk);
-                    let _ = socket_t2u.send(&wire_buf[..wire_len2]);
-
+                if batch_pkts > 0 {
                     metrics_t2u
                         .total_tx_bytes
-                        .fetch_add((wire_len1 + wire_len2) as u64, Ordering::Relaxed);
-                    counters().tx_packets.fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(batch_bytes, Ordering::Relaxed);
+                    counters().tx_packets.fetch_add(batch_pkts, Ordering::Relaxed);
                     last_tx_t2u.store(
                         tunnel_start.elapsed().as_millis() as u64,
                         Ordering::Relaxed,
                     );
-                } else {
-                    let seq = (seq_t2u.fetch_add(1, Ordering::Relaxed) & 0xFFFF) as u16;
-                    let payload_out = &mut wire_buf[MIMICRY_HEADER_LEN..];
-                    let shaped_len =
-                        apply_payload_shaping(pkt_slice, payload_out, &psk, seq, mode, profile);
-                    let total_wire_len = MIMICRY_HEADER_LEN + shaped_len;
-                    let full_flags = FLAG_DATA | mode.to_flags();
-                    profile.wrap_header(&mut wire_buf[..total_wire_len], full_flags, seq, &psk);
-
-                    if socket_t2u.send(&wire_buf[..total_wire_len]).is_ok() {
-                        metrics_t2u
-                            .total_tx_bytes
-                            .fetch_add(total_wire_len as u64, Ordering::Relaxed);
-                        counters().tx_packets.fetch_add(1, Ordering::Relaxed);
-                        last_tx_t2u.store(
-                            tunnel_start.elapsed().as_millis() as u64,
-                            Ordering::Relaxed,
-                        );
-                    }
                 }
             }
         })
         .map_err(|e| format!("Failed to spawn android_tun_to_udp thread: {}", e))?;
 
-    // Thread 2: Connected UDP -> Mimicry Unwrap -> Strip Shaping -> Reassembly -> Android TUN fd
+    // Thread 2: Connected UDP (Batch `recvmmsg` 32 pkts/syscall) -> Unwrap -> Reassembly -> NPTv6 -> Android TUN
     let running_u2t = Arc::clone(&running);
     let metrics_u2t = Arc::clone(&metrics);
 
     let handle_u2t = thread::Builder::new()
         .name("android_udp_to_tun".into())
         .spawn(move || {
-            let mut buf = vec![0u8; 65536];
+            let sock_fd = socket.as_raw_fd();
+            let mut rx_bufs: Box<[[u8; PACKET_SLOT_SIZE]; RX_BATCH_SIZE]> =
+                Box::new([[0u8; PACKET_SLOT_SIZE]; RX_BATCH_SIZE]);
+            let mut iovecs: [libc::iovec; RX_BATCH_SIZE] = unsafe { std::mem::zeroed() };
+            let mut msgs: [libc::mmsghdr; RX_BATCH_SIZE] = unsafe { std::mem::zeroed() };
+
+            for i in 0..RX_BATCH_SIZE {
+                iovecs[i].iov_base = rx_bufs[i].as_mut_ptr() as *mut libc::c_void;
+                iovecs[i].iov_len = PACKET_SLOT_SIZE;
+                msgs[i].msg_hdr.msg_iov = &mut iovecs[i] as *mut libc::iovec;
+                msgs[i].msg_hdr.msg_iovlen = 1;
+            }
+
             let mut reasm = Box::new(ReassemblyBuffer::new());
-            let mut reasm_out = [0u8; 2048];
+            let mut reasm_out = [0u8; PACKET_SLOT_SIZE];
 
             while running_u2t.load(Ordering::Relaxed) {
-                match socket.recv(&mut buf) {
-                    Ok(n) if n >= MIMICRY_HEADER_LEN => {
-                        metrics_u2t
-                            .total_rx_bytes
-                            .fetch_add(n as u64, Ordering::Relaxed);
+                let mut timeout = libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: 100_000_000, // 100 ms shutdown responsiveness
+                };
 
-                        if let Some((flags, seq)) = profile.unwrap_header(&buf[..n], &psk) {
-                            let frame_type = flags & FLAG_FRAME_MASK;
-                            if frame_type == FLAG_KEEPALIVE_ACK || frame_type == FLAG_KEEPALIVE {
-                                continue;
+                let count = unsafe {
+                    libc::recvmmsg(
+                        sock_fd,
+                        msgs.as_mut_ptr(),
+                        RX_BATCH_SIZE as libc::c_uint,
+                        libc::MSG_WAITFORONE,
+                        &mut timeout as *mut libc::timespec,
+                    )
+                };
+
+                if count <= 0 {
+                    continue;
+                }
+
+                let mut batch_rx_bytes: u64 = 0;
+
+                for i in 0..(count as usize) {
+                    let n = msgs[i].msg_len as usize;
+                    if n < MIMICRY_HEADER_LEN || n > PACKET_SLOT_SIZE {
+                        continue;
+                    }
+                    batch_rx_bytes += n as u64;
+
+                    let pkt = &mut rx_bufs[i][..n];
+                    if let Some((flags, seq)) = profile.unwrap_header(pkt, &psk) {
+                        let frame_type = flags & FLAG_FRAME_MASK;
+                        if frame_type == FLAG_KEEPALIVE_ACK || frame_type == FLAG_KEEPALIVE {
+                            continue;
+                        }
+
+                        let incoming_mode = PayloadMode::from_flags(flags);
+                        let payload_data = &mut pkt[MIMICRY_HEADER_LEN..n];
+
+                        if frame_type == FLAG_DATA {
+                            if let Some(raw_len) = strip_payload_shaping(
+                                payload_data,
+                                &psk,
+                                seq,
+                                incoming_mode,
+                                profile,
+                            ) {
+                                deliver_inbound_packet(
+                                    tun_fd,
+                                    &mut payload_data[..raw_len],
+                                    &metrics_u2t,
+                                );
                             }
-
-                            let incoming_mode = PayloadMode::from_flags(flags);
-                            let payload_data = &mut buf[MIMICRY_HEADER_LEN..n];
-
-                            if frame_type == FLAG_DATA {
-                                if let Some(raw_len) = strip_payload_shaping(
-                                    payload_data,
-                                    &psk,
+                        } else if frame_type == FLAG_FRAG_1 || frame_type == FLAG_FRAG_2 {
+                            if let Some(raw_len) = strip_payload_shaping(
+                                payload_data,
+                                &psk,
+                                seq,
+                                incoming_mode,
+                                profile,
+                            ) {
+                                let is_frag1 = frame_type == FLAG_FRAG_1;
+                                if let Some(reassembled_len) = reasm.process(
+                                    is_frag1,
                                     seq,
-                                    incoming_mode,
-                                    profile,
+                                    &payload_data[..raw_len],
+                                    &mut reasm_out,
                                 ) {
-                                    let ip_pkt = &payload_data[..raw_len];
-                                    if ip_pkt.is_empty() {
-                                        continue;
-                                    }
-
-                                    // Demux in-band ICMP Echo Reply for live RTT telemetry
-                                    if metrics_u2t.handle_possible_probe_reply(ip_pkt) {
-                                        continue;
-                                    }
-
-                                    let written = unsafe {
-                                        libc::write(
-                                            tun_fd,
-                                            ip_pkt.as_ptr() as *const libc::c_void,
-                                            ip_pkt.len(),
-                                        )
-                                    };
-                                    if written > 0 {
-                                        counters().rx_packets.fetch_add(1, Ordering::Relaxed);
-                                    }
-                                }
-                            } else if frame_type == FLAG_FRAG_1 || frame_type == FLAG_FRAG_2 {
-                                if let Some(raw_len) = strip_payload_shaping(
-                                    payload_data,
-                                    &psk,
-                                    seq,
-                                    incoming_mode,
-                                    profile,
-                                ) {
-                                    let is_frag1 = frame_type == FLAG_FRAG_1;
-                                    if let Some(reassembled_len) = reasm.process(
-                                        is_frag1,
-                                        seq,
-                                        &payload_data[..raw_len],
-                                        &mut reasm_out,
-                                    ) {
-                                        let ip_pkt = &reasm_out[..reassembled_len];
-                                        if ip_pkt.is_empty() {
-                                            continue;
-                                        }
-
-                                        if metrics_u2t.handle_possible_probe_reply(ip_pkt) {
-                                            continue;
-                                        }
-
-                                        let written = unsafe {
-                                            libc::write(
-                                                tun_fd,
-                                                ip_pkt.as_ptr() as *const libc::c_void,
-                                                ip_pkt.len(),
-                                            )
-                                        };
-                                        if written > 0 {
-                                            counters().rx_packets.fetch_add(1, Ordering::Relaxed);
-                                        }
-                                    }
+                                    deliver_inbound_packet(
+                                        tun_fd,
+                                        &mut reasm_out[..reassembled_len],
+                                        &metrics_u2t,
+                                    );
                                 }
                             }
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(ref e)
-                        if e.kind() == io::ErrorKind::TimedOut
-                            || e.kind() == io::ErrorKind::WouldBlock =>
-                    {
-                        if !running_u2t.load(Ordering::Relaxed) {
-                            break;
-                        }
-                    }
-                    Err(_) => {
-                        if !running_u2t.load(Ordering::Relaxed) {
-                            break;
                         }
                     }
                 }
+
+                if batch_rx_bytes > 0 {
+                    metrics_u2t
+                        .total_rx_bytes
+                        .fetch_add(batch_rx_bytes, Ordering::Relaxed);
+                }
             }
+            drop(socket);
         })
         .map_err(|e| format!("Failed to spawn android_udp_to_tun thread: {}", e))?;
 
@@ -624,7 +797,7 @@ pub fn start_tunnel(tun_fd: RawFd) -> Result<(), String> {
                     }
                 }
 
-                // Sync live telemetry into TunnelTelemetry::global()
+                // Sync live telemetry
                 let now = Instant::now();
                 let dt = now.duration_since(prev_time).as_secs_f64();
                 prev_time = now;
@@ -719,8 +892,7 @@ pub fn get_telemetry() -> [i64; 5] {
     [rx_bytes, tx_bytes, rx_packets, tx_packets, rtt_ms]
 }
 
-/// Decode a `morph://` subscription token into a clean JSON summary for Android UI & VpnService.Builder
-/// (gives Kotlin the assigned virtual IPv4/IPv6, name, profile, mode, quota, and expiration).
+/// Decode a `morph://` subscription token into a clean JSON summary for Android UI & VpnService.Builder.
 pub fn decode_token_json(token_uri: &str) -> Result<String, String> {
     let token = SubscriptionToken::from_uri(token_uri)?;
     let obj = serde_json::json!({
