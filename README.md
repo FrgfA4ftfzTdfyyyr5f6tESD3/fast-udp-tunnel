@@ -4,6 +4,10 @@ A high-throughput, Layer-3 RAW IP UDP tunnel written in pure Rust—sharing one 
 
 Built for hostile cellular/ISP networks with DPI filtering, MTU black holes, and dirty IPv4 datacenter blocks.
 
+| Windows Desktop Client | Android App (Jetpack Compose) | Cloaked Web Admin Console |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/desktop.png" alt="Morph Core Windows Desktop Client" height="260" /> | <img src="docs/screenshots/android.png" alt="Morph Core Android App" height="260" /> | <img src="docs/screenshots/admin-panel.png" alt="Morph Core Web Admin Console" height="260" /> |
+
 ---
 
 ## Why Morph Core? (Key Differentiators)
@@ -40,6 +44,7 @@ fast-udp-tunnel/
 ├── core-rust/     # Unified Rust engine (Linux Server, Windows Client, Android JNI + dist/android/)
 ├── desktop-ui/    # Minimal 3-tab Windows desktop UI (HTML/CSS/JS)
 ├── android-app/   # Minimal 3-tab Android app (Kotlin + Jetpack Compose + bundled .so libs)
+├── docs/          # Sanitized UI screenshots for documentation
 └── releases/      # Local build outputs (git-ignored)
 ```
 
