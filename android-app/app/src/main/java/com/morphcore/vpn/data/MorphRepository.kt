@@ -3,13 +3,11 @@ package com.morphcore.vpn.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,7 +23,6 @@ class MorphRepository(private val context: Context) {
         val CAMOUFLAGE_PROTOCOL = stringPreferencesKey("camouflage_protocol")
         val PORT_OVERRIDE = intPreferencesKey("port_override")
         val PAYLOAD_MODE = stringPreferencesKey("payload_mode")
-        val SEEDED_TEST_TOKEN_V2 = booleanPreferencesKey("seeded_test_token_v2")
     }
 
     val profilesFlow: Flow<List<MorphProfile>> = context.morphDataStore.data.map { prefs ->
@@ -89,24 +86,6 @@ class MorphRepository(private val context: Context) {
         }
     }
 
-    suspend fun deleteProfilesByToken(token: String) {
-        context.morphDataStore.edit { prefs ->
-            val current = decodeProfilesList(prefs[Keys.PROFILES_JSON])
-            val removedIds = current.filter { it.token == token }.map { it.id }.toSet()
-            if (removedIds.isEmpty()) return@edit
-            val updated = current.filterNot { it.token == token }
-            prefs[Keys.PROFILES_JSON] = encodeProfilesList(updated)
-            if (prefs[Keys.ACTIVE_PROFILE_ID] in removedIds) {
-                val nextId = updated.firstOrNull()?.id
-                if (nextId != null) {
-                    prefs[Keys.ACTIVE_PROFILE_ID] = nextId
-                } else {
-                    prefs.remove(Keys.ACTIVE_PROFILE_ID)
-                }
-            }
-        }
-    }
-
     suspend fun saveSettings(settings: TunnelSettings) {
         context.morphDataStore.edit { prefs ->
             prefs[Keys.TRANSPORT_IP] = settings.transportIp.key
@@ -118,16 +97,6 @@ class MorphRepository(private val context: Context) {
                 prefs.remove(Keys.PORT_OVERRIDE)
             }
             prefs[Keys.PAYLOAD_MODE] = settings.payloadMode.key ?: "auto"
-        }
-    }
-
-    suspend fun isTestTokenSeeded(): Boolean {
-        return context.morphDataStore.data.first()[Keys.SEEDED_TEST_TOKEN_V2] == true
-    }
-
-    suspend fun markTestTokenSeeded() {
-        context.morphDataStore.edit { prefs ->
-            prefs[Keys.SEEDED_TEST_TOKEN_V2] = true
         }
     }
 

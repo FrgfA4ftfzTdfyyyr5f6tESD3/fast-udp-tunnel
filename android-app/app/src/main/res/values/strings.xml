@@ -12,7 +12,6 @@
     <string name="tab_tunnel">Tunnel</string>
     <string name="tab_tokens">Tokens</string>
     <string name="tab_options">Options</string>
-    <string name="tab_logs">Logs</string>
 
     <!-- Tunnel Screen -->
     <string name="status_disconnected">DISCONNECTED</string>
@@ -90,20 +89,4 @@
     <string name="vpn_notif_title">Morph Core Connected</string>
     <string name="vpn_notif_connecting">Connecting Morph Core Tunnel…</string>
     <string name="vpn_notif_disconnect">Disconnect</string>
-
-    <!-- Diagnostics & Logs Screen -->
-    <string name="logs_title">Diagnostics &amp; Logs</string>
-    <string name="logs_vpn_status_label">VPN Interface</string>
-    <string name="logs_server_endpoints_label">Token Endpoints</string>
-    <string name="logs_packets_label">Packets (RX / TX)</string>
-    <string name="exit_ip_label">Exit IP (Tunnel)</string>
-    <string name="logs_btn_refresh_logcat">Capture Logcat</string>
-    <string name="logs_btn_copy">Copy Report</string>
-    <string name="logs_btn_clear">Clear</string>
-    <string name="logs_copied_toast">Diagnostic report copied to clipboard.</string>
-    <string name="logs_empty">No logs recorded yet. Connect or capture logcat to inspect tunnel behavior.</string>
-    <string name="health_bidirectional">Bidirectional tunnel traffic active</string>
-    <string name="health_awaiting_reply">Sending packets (TX) — awaiting server reply (RX: 0)</string>
-    <string name="health_idle">Tunnel established — waiting for app traffic</string>
-    <string name="view_logs_action">Logs</string>
 </resources>
