@@ -782,6 +782,7 @@ name = "fast-udp-tunnel"
 version = "0.1.0"
 dependencies = [
  "ctrlc",
+ "jni",
  "libc",
  "serde",
  "serde_json",
