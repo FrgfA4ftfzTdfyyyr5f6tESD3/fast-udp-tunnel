@@ -1,0 +1,109 @@
+<resources>
+    <string name="app_name">Morph Core</string>
+    <string name="brand_title">MORPH</string>
+    <string name="brand_version">v8.7</string>
+
+    <!-- Feature pills -->
+    <string name="pill_gemini_ipv6">Gemini IPv6</string>
+    <string name="pill_hagezi_adblock">HaGeZi AdBlock</string>
+    <string name="pill_zero_leak">Zero-Leak</string>
+
+    <!-- Tabs -->
+    <string name="tab_tunnel">Tunnel</string>
+    <string name="tab_tokens">Tokens</string>
+    <string name="tab_options">Options</string>
+    <string name="tab_logs">Logs</string>
+
+    <!-- Tunnel Screen -->
+    <string name="status_disconnected">DISCONNECTED</string>
+    <string name="status_connecting">CONNECTING…</string>
+    <string name="status_connected">CONNECTED</string>
+    <string name="status_error">CONNECTION ERROR</string>
+    <string name="power_button_cd">Toggle VPN Connection</string>
+    <string name="rtt_badge_format">RTT: %1$d ms</string>
+    <string name="rtt_badge_placeholder">RTT: -- ms</string>
+    <string name="active_profile_label">ACTIVE PROFILE</string>
+    <string name="no_profile_selected">No profile selected</string>
+    <string name="select_token_hint">Import and select a morph:// token in the Tokens tab</string>
+    <string name="metric_ping_rtt">PING RTT</string>
+    <string name="metric_download">DOWNLOAD</string>
+    <string name="metric_upload">UPLOAD</string>
+    <string name="metric_data_usage">DATA USAGE</string>
+    <string name="telemetry_chart_title">LIVE THROUGHPUT</string>
+    <string name="telemetry_chart_subtitle">500 ms telemetry sample</string>
+    <string name="rx_legend">DL</string>
+    <string name="tx_legend">UL</string>
+    <string name="vpn_permission_denied">VPN permission is required to establish the encrypted tunnel.</string>
+    <string name="notification_permission_rationale">Notification permission allows displaying live VPN speed and quick disconnect controls.</string>
+
+    <!-- Tokens Screen -->
+    <string name="tokens_import_title">Import Token</string>
+    <string name="token_input_placeholder">Paste morph:// token here…</string>
+    <string name="btn_paste">Paste</string>
+    <string name="btn_import">Import</string>
+    <string name="saved_profiles_title">Saved Profiles</string>
+    <string name="no_saved_profiles">No profiles imported yet</string>
+    <string name="no_saved_profiles_sub">Paste a valid morph:// configuration link above to decode endpoints and keys.</string>
+    <string name="token_invalid_error">Invalid morph:// token. Please verify the token string and try again.</string>
+    <string name="token_empty_error">Please paste or enter a morph:// token first.</string>
+    <string name="token_imported_success">Profile imported and selected.</string>
+    <string name="token_duplicate_updated">Profile updated from token.</string>
+    <string name="active_badge">ACTIVE</string>
+    <string name="delete_profile_cd">Delete profile</string>
+    <string name="quota_label">Quota</string>
+    <string name="expires_label">Expires</string>
+    <string name="unlimited_value">Unlimited</string>
+    <string name="expired_value">Expired</string>
+    <string name="clipboard_empty">Clipboard is empty</string>
+
+    <!-- Options Screen -->
+    <string name="options_transport_title">Transport IP Protocol</string>
+    <string name="transport_auto">Auto (Prefer IPv6)</string>
+    <string name="transport_auto_desc">Use IPv6 endpoint when available, fall back to IPv4</string>
+    <string name="transport_ipv6">Force IPv6</string>
+    <string name="transport_ipv6_desc">Route encrypted tunnel strictly over IPv6</string>
+    <string name="transport_ipv4">Force IPv4</string>
+    <string name="transport_ipv4_desc">Route encrypted tunnel strictly over IPv4</string>
+
+    <string name="options_camouflage_title">Camouflage Protocol Override</string>
+    <string name="options_camouflage_subtitle">Disguise tunnel frames using native packet shaping</string>
+    <string name="protocol_auto">Auto (From Token)</string>
+
+    <string name="options_port_title">Server Port Override</string>
+    <string name="options_port_placeholder">Auto (token port)</string>
+    <string name="btn_reset">Reset</string>
+    <string name="options_port_invalid">Enter a valid port between 1 and 65535, or leave empty for Auto.</string>
+
+    <string name="options_payload_title">Payload Mode Override</string>
+    <string name="payload_auto">Auto</string>
+    <string name="payload_shaped">Shaped</string>
+    <string name="payload_stream">Stream</string>
+    <string name="payload_plaintext">Plaintext</string>
+
+    <string name="btn_save_options">Save Options</string>
+    <string name="options_saved_message">Options saved. Reconnect if active to apply changes.</string>
+
+    <!-- VPN Foreground Notification -->
+    <string name="vpn_channel_id">morph_vpn_tunnel_channel</string>
+    <string name="vpn_channel_name">Morph Core Tunnel</string>
+    <string name="vpn_channel_description">Live status and throughput for active Morph Core VPN tunnel</string>
+    <string name="vpn_notif_title">Morph Core Connected</string>
+    <string name="vpn_notif_connecting">Connecting Morph Core Tunnel…</string>
+    <string name="vpn_notif_disconnect">Disconnect</string>
+
+    <!-- Diagnostics & Logs Screen -->
+    <string name="logs_title">Diagnostics &amp; Logs</string>
+    <string name="logs_vpn_status_label">VPN Interface</string>
+    <string name="logs_server_endpoints_label">Token Endpoints</string>
+    <string name="logs_packets_label">Packets (RX / TX)</string>
+    <string name="exit_ip_label">Exit IP (Tunnel)</string>
+    <string name="logs_btn_refresh_logcat">Capture Logcat</string>
+    <string name="logs_btn_copy">Copy Report</string>
+    <string name="logs_btn_clear">Clear</string>
+    <string name="logs_copied_toast">Diagnostic report copied to clipboard.</string>
+    <string name="logs_empty">No logs recorded yet. Connect or capture logcat to inspect tunnel behavior.</string>
+    <string name="health_bidirectional">Bidirectional tunnel traffic active</string>
+    <string name="health_awaiting_reply">Sending packets (TX) — awaiting server reply (RX: 0)</string>
+    <string name="health_idle">Tunnel established — waiting for app traffic</string>
+    <string name="view_logs_action">Logs</string>
+</resources>

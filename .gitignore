@@ -1,17 +1,36 @@
 # Rust / Cargo build outputs
 target/
-rust-client/target/
-rust-client/gen/
+core-rust/target/
+core-rust/gen/
+
+# Android / Gradle build outputs & local environment
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+android-app/debug.keystore
+android-app/*.jks
+android-app/*.keystore
+android-app/.idea/
+
+# Local release outputs (kept on disk, excluded from Git)
+releases/
 
 # Compiled binaries & runtime artifacts
 *.exe
 *.dll
+*.apk
+*.aab
 *.so
 *.dylib
 *.tar.gz
 *.b64
 *.log
 fast-udp-tunnel-linux
+
+# Explicitly track prebuilt Android JNI libraries for instant APK builds
+!android-app/app/src/main/jniLibs/**/*.so
+!core-rust/dist/android/**/*.so
 
 # Private user credentials, profiles & server databases (NEVER commit!)
 morph_profiles.dat
@@ -22,7 +41,7 @@ test_user.json
 *.key
 *.pem
 
-# Local logs & scratch directories
+# Local logs & OS files
 logs/
 .DS_Store
 Thumbs.db

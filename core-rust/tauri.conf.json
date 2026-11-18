@@ -4,7 +4,7 @@
   "version": "8.7.0",
   "identifier": "com.morph.tunnel",
   "build": {
-    "frontendDist": "ui"
+    "frontendDist": "../desktop-ui"
   },
   "app": {
     "withGlobalTauri": true,
