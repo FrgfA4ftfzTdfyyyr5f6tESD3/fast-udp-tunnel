@@ -45,14 +45,29 @@ fast-udp-tunnel/
 ├── desktop-ui/    # Minimal 3-tab Windows desktop UI (HTML/CSS/JS)
 ├── android-app/   # Minimal 3-tab Android app (Kotlin + Jetpack Compose + bundled .so libs)
 ├── docs/          # Sanitized UI screenshots for documentation
+├── install.sh     # One-click automated Linux server installer & service manager
 └── releases/      # Local build outputs (git-ignored)
 ```
 
 ---
 
-## Quick Build & Run
+## Quick Start & Installation
 
-### 1. Linux Server (Static `musl`)
+### 1. Linux Server (One-Click Automated Install)
+
+Run this single command on **Ubuntu**, **Debian**, or **Alpine Linux** (as `root`):
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/FrgfA4ftfzTdfyyyr5f6tESD3/fast-udp-tunnel/main/install.sh)
+```
+
+- **Zero Prerequisites:** Downloads the standalone static `musl` binary directly from GitHub Releases (no Rust, toolchain, or compiler needed on the VPS).
+- **Auto-Configuring:** Auto-detects public IPv4 & IPv6 endpoints, binds standard UDP ports, and configures kernel TUN routes.
+- **Daemonized:** Installs an auto-starting background service (`systemd` on Ubuntu/Debian, `OpenRC` on Alpine).
+- **Instant Admin Access:** Generates the cloaked Admin Web Console URL, credentials, and first client subscription token upon launch.
+- **Service CLI:** Installs `/usr/local/bin/morph` (`morph`, `morph status`, `morph logs`, `morph restart`, `morph tokens`).
+
+#### Build Linux Server from Source (Optional)
 ```bash
 cd core-rust
 rustup target add x86_64-unknown-linux-musl
